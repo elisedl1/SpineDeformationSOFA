@@ -13,6 +13,7 @@ mesh_files = [
 input_json_file = r"C:\Users\elise\Documents\SpineSimulation\spine_folder\sofa_springs.json"
 output_json_file = r"C:\Users\elise\Documents\SpineSimulation\spine_folder\sofa_springs_indices.json"
 
+
 # ---------- HELPER FUNCTIONS ----------
 def load_mesh_vertices(mesh_file):
     mesh = pv.read(mesh_file)
