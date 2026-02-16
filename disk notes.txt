@@ -1,0 +1,14 @@
+mPA = 3.5–14.9 
+
+Poissan coefficient = 0.45
+
+
+
+Vertebra 
+PC = 0.3
+
+
+
+
+Equivalent bushing translational stiffness ≈ 5000–9000 N/mm
+Equivalent rotational stiffness ≈ 2000–4000 N·m/rad

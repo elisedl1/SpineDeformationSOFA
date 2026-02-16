@@ -1,0 +1,58 @@
+import json
+import os
+import argparse
+
+def generate_parameters_json(output_path):
+    """
+    Generate a minimal JSON with just biomechanical parameters.
+    """
+    parameters = {
+        "disc": {
+            "stiffness": 500,
+            "damping": 3,
+            "description": "Inter-vertebral disc springs. Paper uses 400-800 springs total."
+        },
+        "facets": {
+            "stiffness": 8000,
+            "damping": 500,
+            "description": "Facet joint springs. Paper uses 200-500 springs total."
+        },
+        "forces": {
+            "max_force_N": 0.7,
+            "description": "Maximum applied force from paper: 0.7 N"
+        },
+        "solver": {
+            "rayleigh_stiffness": 0.1,
+            "rayleigh_mass": 0.1,
+            "iterations": 50,
+            "tolerance": 0.000001,
+            "description": "Solver parameters for stability and convergence"
+        },
+        "notes": {
+            "equivalent_stiffness_disc": "0.2-0.4 MN/m with 400-800 springs",
+            "equivalent_stiffness_facets": "0.16-4 MN/m with 200-500 springs",
+            "reference": "Table 1 from paper"
+        }
+    }
+    
+    with open(output_path, 'w') as f:
+        json.dump(parameters, f, indent=4)
+    
+    print(f"Parameters saved to {output_path}")
+    return parameters
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Generate biomechanical parameters for spine simulation"
+    )
+    parser.add_argument(
+        "--output",
+        required=True,
+        help="Output JSON file path"
+    )
+    
+    args = parser.parse_args()
+    generate_parameters_json(args.output)
+
+    # python generate_spine_parameters.py --output ./parameters.json
