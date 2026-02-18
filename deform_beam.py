@@ -66,8 +66,8 @@ REST_SHAPE_ANGULAR_STIFFNESS = 500.0
 
 # Force per mesh vertex
 FORCE_V0 = 0.5
-FORCE_V1 = 2.5
-FORCE_V2 = 2.5
+FORCE_V1 = 1.8
+FORCE_V2 = 1.8
 FORCE_V3 = 0.5
 
 # ============================================================
@@ -130,9 +130,12 @@ def compute_quaternions_for_path(points):
 
 
 def build_beam_topology(centers):
+    ANCHOR_SCALE = 1.5
     centers = [np.array(c) for c in centers]
-    anchor_start = 2 * centers[0] - centers[1]
-    anchor_end = 2 * centers[-1] - centers[-2]
+    # anchor_start = 2 * centers[0] - centers[1]
+    # anchor_end = 2 * centers[-1] - centers[-2]
+    anchor_start = centers[0] + ANCHOR_SCALE * (centers[0] - centers[1])
+    anchor_end   = centers[-1] + ANCHOR_SCALE * (centers[-1] - centers[-2])
     extended = [anchor_start] + centers + [anchor_end]
 
     refined = []
