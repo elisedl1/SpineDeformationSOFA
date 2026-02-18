@@ -7,6 +7,17 @@ Disc spacing is enforced by:
 3. Collision between endplate meshes with per-vertebra collision groups
    (group=v_idx means same-vertebra parts don't self-collide,
     but adjacent vertebrae DO collide with each other)
+
+Coordinate axes:
+  AP_AXIS  — anterior-posterior (hardcoded, normalized)
+  SI_AXIS  — superior-inferior (computed from beam direction)
+  LM_AXIS  — lateral-medial   (computed as AP x SI)
+
+Per-vertebra forces are configured in VERTEBRA_FORCE_CONFIG below.
+Each entry is a dict with keys:
+  'magnitude' : float   — force magnitude per mesh vertex
+  'axis'      : str     — 'AP', 'SI', or 'LM'
+  'anterior'  : bool    — True = positive axis direction, False = negative
 """
 
 import os
@@ -44,13 +55,73 @@ ENDPLATE_MESH_FILES = {
 
 VERTEBRA_CENTERS = [
     [-26.4200, 226.9736, -334.1898],  # L1 (v0)
-    [-23.6073, 203.9596, -310.3250],   # L2 (v1)
-    [-22.1764, 179.0056, -285.8145],    # L3 (v2)
-    [-20.7015, 153.0243, -262.7382],    # L4 (v3)
+    [-23.6073, 203.9596, -310.3250],  # L2 (v1)
+    [-22.1764, 179.0056, -285.8145],  # L3 (v2)
+    [-20.7015, 153.0243, -262.7382],  # L4 (v3)
 ]
 
-AP_AXIS = np.array([-0.07840471, 0.68894254, 0.72056289])
-AP_AXIS = AP_AXIS / np.linalg.norm(AP_AXIS)
+# ============================================================
+# ANATOMICAL AXES
+# AP_AXIS is hardcoded; SI and LM are derived from it.
+#
+#   SI_AXIS: superior-inferior — computed from the overall beam direction
+#            (L1 center -> L4 center), then orthogonalised against AP_AXIS
+#   LM_AXIS: lateral-medial   — computed as cross(AP_AXIS, SI_AXIS)
+#
+# All three axes are unit vectors and mutually orthogonal.
+# ============================================================
+
+AP_AXIS_RAW = np.array([-0.07840471, 0.68894254, 0.72056289])
+
+
+def _compute_anatomical_axes(vertebra_centers, ap_axis_raw):
+    """Return (AP, SI, LM) unit vectors derived from the hardcoded AP axis."""
+    ap = ap_axis_raw / np.linalg.norm(ap_axis_raw)
+
+    # SI: overall cranio-caudal direction of the spine (L1 -> L4),
+    # projected out of the AP direction so the three axes are orthogonal.
+    spine_vec = np.array(vertebra_centers[-1]) - np.array(vertebra_centers[0])
+    si_raw = spine_vec - np.dot(spine_vec, ap) * ap
+    si = si_raw / np.linalg.norm(si_raw)
+
+    # LM: right-hand cross product
+    lm = np.cross(ap, si)
+    lm = lm / np.linalg.norm(lm)
+
+    return ap, si, lm
+
+
+AP_AXIS, SI_AXIS, LM_AXIS = _compute_anatomical_axes(VERTEBRA_CENTERS, AP_AXIS_RAW)
+
+print("Anatomical axes (unit vectors):")
+print("  AP: %s" % np.round(AP_AXIS, 6).tolist())
+print("  SI: %s" % np.round(SI_AXIS, 6).tolist())
+print("  LM: %s" % np.round(LM_AXIS, 6).tolist())
+
+# ============================================================
+# PER-VERTEBRA FORCE CONFIGURATION
+#
+# Each vertebra entry has:
+#   'magnitude' : force per mesh vertex (float)
+#   'axis'      : which anatomical axis to push along
+#                 'AP'  — anterior-posterior
+#                 'SI'  — superior-inferior
+#                 'LM'  — lateral-medial
+#   'positive'  : True  = force in the positive axis direction
+#                 False = force in the negative axis direction
+#
+# Examples:
+#   Anterior push on L2:  axis='AP', positive=True
+#   Caudal compression:   axis='SI', positive=False
+#   Left lateral bend:    axis='LM', positive=True  (or False for right)
+# ============================================================
+
+VERTEBRA_FORCE_CONFIG = {
+    0: {'magnitude': 0.5, 'axis': 'LM', 'positive': False},   # L1
+    1: {'magnitude': 1.2, 'axis': 'LM', 'positive': False},   # L2
+    2: {'magnitude': 1.2, 'axis': 'LM', 'positive': False},   # L3
+    3: {'magnitude': 0.5, 'axis': 'LM', 'positive': False}   # L4
+}
 
 # ============================================================
 # BEAM PARAMETERS
@@ -60,15 +131,12 @@ BEAM_POISSON_RATIO = 0.45
 BEAM_RADIUS = 15.0
 BEAM_RADIUS_INNER = 0.0
 
+# Anchor extension scale: 1.0 = one vertebra-spacing, 1.5 = 1.5x, etc.
+ANCHOR_SCALE = 1.5
+
 # RestShapeSprings
 REST_SHAPE_STIFFNESS = 500.0
 REST_SHAPE_ANGULAR_STIFFNESS = 500.0
-
-# Force per mesh vertex
-FORCE_V0 = 0.5
-FORCE_V1 = 1.8
-FORCE_V2 = 1.8
-FORCE_V3 = 0.5
 
 # ============================================================
 # VTK EXPORT — set to True to save deformed meshes
@@ -96,6 +164,25 @@ def normalize(v):
     if norm < 1e-10:
         return v
     return v / norm
+
+
+def make_force_vec3(cfg):
+    """
+    Build a 3-element force vector from a vertebra force config dict.
+
+    cfg keys:
+        'magnitude' : float
+        'axis'      : 'AP' | 'SI' | 'LM'
+        'positive'  : bool
+    """
+    axis_map = {'AP': AP_AXIS, 'SI': SI_AXIS, 'LM': LM_AXIS}
+    axis_name = cfg.get('axis', 'AP').upper()
+    if axis_name not in axis_map:
+        raise ValueError("Unknown axis '%s'. Choose from AP, SI, LM." % axis_name)
+
+    direction = 1.0 if cfg.get('positive', True) else -1.0
+    fv = direction * cfg['magnitude'] * axis_map[axis_name]
+    return [float(fv[0]), float(fv[1]), float(fv[2])]
 
 
 def compute_quaternions_for_path(points):
@@ -130,11 +217,8 @@ def compute_quaternions_for_path(points):
 
 
 def build_beam_topology(centers):
-    ANCHOR_SCALE = 1.5
     centers = [np.array(c) for c in centers]
-    # anchor_start = 2 * centers[0] - centers[1]
-    # anchor_end = 2 * centers[-1] - centers[-2]
-    anchor_start = centers[0] + ANCHOR_SCALE * (centers[0] - centers[1])
+    anchor_start = centers[0]  + ANCHOR_SCALE * (centers[0]  - centers[1])
     anchor_end   = centers[-1] + ANCHOR_SCALE * (centers[-1] - centers[-2])
     extended = [anchor_start] + centers + [anchor_end]
 
@@ -159,12 +243,6 @@ def build_beam_topology(centers):
         vertebra_node_indices[v_idx] = 2 * (v_idx + 1)
 
     return positions, edges, vertebra_node_indices, refined
-
-
-def make_ap_force_vec3(magnitude, anterior=True):
-    direction = 1.0 if anterior else -1.0
-    fv = direction * magnitude * AP_AXIS
-    return [float(fv[0]), float(fv[1]), float(fv[2])]
 
 
 # ============================================================
@@ -286,8 +364,6 @@ def createScene(root):
     # ==========================================================
     # VERTEBRAE
     # ==========================================================
-    force_magnitudes = {0: FORCE_V0, 1: FORCE_V1, 2: FORCE_V2, 3: FORCE_V3}
-    is_boundary = {0: True, 1: False, 2: False, 3: True}
     colors = [
         [0.2, 0.4, 0.8, 1.0],
         [0.2, 0.7, 0.4, 1.0],
@@ -297,8 +373,8 @@ def createScene(root):
 
     for v_idx in range(4):
         beam_idx = vert_node_map[v_idx]
-        mag = force_magnitudes[v_idx]
-        fc = make_ap_force_vec3(mag, anterior=True)
+        force_cfg = VERTEBRA_FORCE_CONFIG[v_idx]
+        fc = make_force_vec3(force_cfg)
         prox = VERTEBRA_PROXIMITY[v_idx]
 
         # --- Mechanical mesh (forces applied here) ---
@@ -402,13 +478,18 @@ def createScene(root):
                               index=beam_idx,
                               globalToLocalCoords=True)
 
-        print("  v%d: beam=%d, verts=%d" % (v_idx, beam_idx, n_verts))
+        print("  v%d: beam=%d, verts=%d, force=%.3f along %s (%s)" % (
+            v_idx, beam_idx, n_verts,
+            force_cfg['magnitude'],
+            force_cfg['axis'],
+            '+' if force_cfg.get('positive', True) else '-'
+        ))
 
     # ==========================================================
     print("\n--- Scene Summary ---")
     print("  Beam: E=%s, R=%s, nu=%s" % (BEAM_YOUNG_MODULUS, BEAM_RADIUS, BEAM_POISSON_RATIO))
     print("  RestShapeSprings: k=%s, k_ang=%s" % (REST_SHAPE_STIFFNESS, REST_SHAPE_ANGULAR_STIFFNESS))
-    print("  Fixed anchors: %s" % str(fixed_indices))
+    print("  Fixed anchors: %s (scale=%.2f)" % (str(fixed_indices), ANCHOR_SCALE))
     print("  Vertebra beam nodes: %s" % str(vertebra_beam_indices))
     if SAVE_VTK:
         print("  VTK saving to: %s (every %d steps)" % (VTK_OUTPUT_DIR, VTK_EXPORT_EVERY_N_STEPS))
